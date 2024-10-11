@@ -21,7 +21,7 @@
 // OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 // SUCH DAMAGE.
 
-use std::io::{Cursor, Read};
+use std::io::{BufRead, Cursor, Read};
 
 pub struct PacketParser<'a> {
     bytes: &'a [u8],
@@ -90,5 +90,12 @@ impl PacketParser<'_> {
         let mut bytes = vec![0u8; amount];
         self.cursor.read(&mut bytes).unwrap();
         bytes
+    }
+
+    pub fn get_slice(&mut self, amount: usize) -> &[u8] {
+        let slice =
+            &self.bytes[self.cursor.position() as usize..self.cursor.position() as usize + amount];
+        self.cursor.consume(amount);
+        slice
     }
 }

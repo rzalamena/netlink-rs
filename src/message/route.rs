@@ -91,13 +91,13 @@ pub struct LinkMessage {
     pub change: u32,
 }
 
-pub struct Link {
+pub struct Link<'a> {
     pub message: LinkMessage,
-    pub attributes: Vec<Attribute>,
+    pub attributes: Vec<Attribute<'a>>,
 }
 
-impl Link {
-    pub fn from(parser: &mut PacketParser) -> NetlinkParseResult<Link> {
+impl<'a> Link<'a> {
+    pub fn from(parser: &mut PacketParser) -> NetlinkParseResult<Link<'a>> {
         if (parser.remaining() as usize) < std::mem::size_of::<LinkMessage>() {
             return Err(NetlinkParseError::MessageIncomplete);
         }
@@ -117,7 +117,7 @@ impl Link {
                 libc::IFLA_ADDRESS => attributes.push(Attribute::Mac(AttributeValue::<Mac>::from(
                     parser, length, kind,
                 )?)),
-                _ => attributes.push(Attribute::Unknown(AttributeValue::<Vec<u8>>::from(
+                _ => attributes.push(Attribute::Unknown(AttributeValue::<&[u8]>::from(
                     parser, length, kind,
                 )?)),
             }
