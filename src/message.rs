@@ -60,23 +60,23 @@ pub struct NetlinkHeader {
 }
 
 /// Netlink possible payload types.
-pub enum NetlinkPayload<'a> {
+pub enum NetlinkPayload {
     None,
     Route(route::MessageType),
-    Unknown(&'a [u8]),
+    Unknown(Vec<u8>),
 }
 
 /// Netlink rust representation.
-pub struct NetlinkMessage<'a> {
+pub struct NetlinkMessage {
     /// Netlink header.
     pub header: NetlinkHeader,
     /// Netlink payload.
-    pub payload: NetlinkPayload<'a>,
+    pub payload: NetlinkPayload,
 }
 
 type NetlinkParseResult<T> = Result<T, NetlinkParseError>;
 
-impl NetlinkMessage<'_> {
+impl NetlinkMessage {
     /// Read bytes from `AF_NETLINK` or custom interfaces and turn into netlink
     /// data structures.
     pub fn from(bytes: &[u8]) -> NetlinkParseResult<NetlinkMessage> {
@@ -115,13 +115,13 @@ impl NetlinkMessage<'_> {
                     }),
                     Err(_) => Ok(NetlinkMessage {
                         header: netlink_header,
-                        payload: NetlinkPayload::Unknown(&bytes[16..]),
+                        payload: NetlinkPayload::Unknown(bytes[16..].to_vec()),
                     }),
                 }
             }
             _ => Ok(NetlinkMessage {
                 header: netlink_header,
-                payload: NetlinkPayload::Unknown(&bytes[16..]),
+                payload: NetlinkPayload::Unknown(bytes[16..].to_vec()),
             }),
         }
     }

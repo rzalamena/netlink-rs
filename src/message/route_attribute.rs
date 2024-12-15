@@ -87,23 +87,23 @@ impl AttributeValue<Mac> {
     }
 }
 
-impl AttributeValue<&[u8]> {
+impl AttributeValue<Vec<u8>> {
     pub fn from<'a>(
         parser: &'a mut PacketParser<'a>,
         length: u16,
         kind: u16,
-    ) -> NetlinkParseResult<AttributeValue<&'a [u8]>> {
-        Ok(AttributeValue::<&[u8]> {
+    ) -> NetlinkParseResult<AttributeValue<Vec<u8>>> {
+        Ok(AttributeValue::<Vec<u8>> {
             length,
             kind,
-            value: parser.get_slice(length as usize),
+            value: parser.read_vec(length as usize),
         })
     }
 }
 
-pub enum Attribute<'a> {
+pub enum Attribute {
     IPv4(AttributeValue<IPv4>),
     IPv6(AttributeValue<IPv6>),
     Mac(AttributeValue<Mac>),
-    Unknown(AttributeValue<&'a [u8]>),
+    Unknown(AttributeValue<Vec<u8>>),
 }

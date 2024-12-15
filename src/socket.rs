@@ -107,7 +107,7 @@ impl NetlinkSocket {
         let result = unsafe {
             libc::bind(
                 descriptor,
-                &mut socket_address as *mut libc::sockaddr_nl as *mut libc::sockaddr,
+                socket_address.as_mut_ptr() as *mut libc::c_void,
                 mem::size_of_val(&socket_address) as libc::socklen_t,
             )
         };

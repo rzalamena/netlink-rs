@@ -21,10 +21,9 @@
 // OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 // SUCH DAMAGE.
 
-use std::io::{BufRead, Cursor, Read};
+use std::io::{Cursor, Read};
 
 pub struct PacketParser<'a> {
-    bytes: &'a [u8],
     cursor: Cursor<&'a [u8]>,
     total: u64,
     netlink_length: u32,
@@ -33,7 +32,6 @@ pub struct PacketParser<'a> {
 impl PacketParser<'_> {
     pub fn new(input_buffer: &[u8]) -> PacketParser {
         PacketParser {
-            bytes: input_buffer,
             cursor: Cursor::new(input_buffer),
             total: input_buffer.len() as u64,
             netlink_length: 0,
@@ -90,12 +88,5 @@ impl PacketParser<'_> {
         let mut bytes = vec![0u8; amount];
         self.cursor.read(&mut bytes).unwrap();
         bytes
-    }
-
-    pub fn get_slice(&mut self, amount: usize) -> &[u8] {
-        let slice =
-            &self.bytes[self.cursor.position() as usize..self.cursor.position() as usize + amount];
-        self.cursor.consume(amount);
-        slice
     }
 }
