@@ -67,23 +67,33 @@ type NetlinkParseResult<T> = Result<T, NetlinkParseError>;
 
 impl NetlinkMessage {
     pub fn from(bytes: &[u8]) -> NetlinkParseResult<NetlinkMessage> {
-        let (header, position) = header::NetlinkHeader::from(bytes).unwrap();
+        let (header, position) = header::NetlinkHeader::from(bytes)?;
+
         let (payload, position) = match header.kind {
             libc::RTM_NEWLINK | libc::RTM_DELLINK | libc::RTM_GETLINK | libc::RTM_SETLINK => {
                 let (payload, position) =
-                    route::LinkMessage::from(&bytes[position..header.length as usize]).unwrap();
+                    route::LinkMessage::from(&bytes[position..header.length as usize])?;
                 (NetlinkPayload::Link(payload), position)
             }
             _ => (NetlinkPayload::None, header.length as usize),
         };
-        let (attributes, _) =
-            attribute::NetlinkAttribute::from(&bytes[position..header.length as usize]).unwrap();
 
-        Ok(NetlinkMessage {
-            header,
-            payload,
-            attributes,
-        })
+        if position != header.length as usize {
+            let (attributes, _) =
+                attribute::NetlinkAttribute::from(&bytes[position..header.length as usize])?;
+
+            Ok(NetlinkMessage {
+                header,
+                payload,
+                attributes,
+            })
+        } else {
+            Ok(NetlinkMessage {
+                header,
+                payload,
+                attributes: Vec::new(),
+            })
+        }
     }
 }
 

@@ -133,13 +133,7 @@ impl NetlinkSocket {
             msg_controllen: 0,
             msg_flags: 0,
         };
-        let bytes_read = unsafe {
-            libc::recvmsg(
-                self.descriptor,
-                &mut msghdr,
-                flags,
-            )
-        };
+        let bytes_read = unsafe { libc::recvmsg(self.descriptor, &mut msghdr, flags) };
         if bytes_read == -1 {
             return Err(Error::last_os_error());
         }
