@@ -19,13 +19,8 @@
 // SOFTWARE.
 
 pub mod attribute;
+pub mod header;
 pub mod route;
-
-use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
-use std::{
-    io::{Cursor, Error},
-    mem,
-};
 
 /// Netlink maximum message size
 /// ([source](https://github.com/torvalds/linux/blob/v6.11/include/linux/netlink.h#L273)).
@@ -38,113 +33,65 @@ pub enum NetlinkParseError {
     MessageTooSmall,
     /// Buffer is truncated (smaller than the header length, needs more reading).
     MessageIncomplete,
-}
-
-pub mod netlink_types {
-    pub const DONE: u16 = libc::NLMSG_DONE as u16;
-    pub const ERROR: u16 = libc::NLMSG_ERROR as u16;
-    pub const NOOP: u16 = libc::NLMSG_NOOP as u16;
-    pub const OVERRUN: u16 = libc::NLMSG_OVERRUN as u16;
-}
-
-pub mod netlink_flags {
-    pub const ACK: u16 = libc::NLM_F_ACK as u16;
-    pub const APPEND: u16 = libc::NLM_F_APPEND as u16;
-    pub const ATOMIC: u16 = libc::NLM_F_ATOMIC as u16;
-    pub const CREATE: u16 = libc::NLM_F_CREATE as u16;
-    pub const DUMP: u16 = libc::NLM_F_DUMP as u16;
-    pub const ECHO: u16 = libc::NLM_F_ECHO as u16;
-    pub const EXCL: u16 = libc::NLM_F_EXCL as u16;
-    pub const MATCH: u16 = libc::NLM_F_MATCH as u16;
-    pub const MULTI: u16 = libc::NLM_F_MULTI as u16;
-    pub const REPLACE: u16 = libc::NLM_F_REPLACE as u16;
-    pub const REQUEST: u16 = libc::NLM_F_REQUEST as u16;
-    pub const ROOT: u16 = libc::NLM_F_ROOT as u16;
-    pub const DUMP_FILTERED: u16 = libc::NLM_F_DUMP_FILTERED as u16;
-    pub const DUMP_INTR: u16 = libc::NLM_F_DUMP_INTR as u16;
-}
-
-/// Netlink header rust version.
-pub struct NetlinkHeader {
-    /// Netlink message length (including this header).
-    length: u32,
-    /// Netlink message type.
-    pub kind: u16,
-    /// Netlink flags.
-    flags: u16,
-    /// Netlink message sequence (for matching request/reply).
-    sequence: u32,
-    /// Netlink port identification (to identify the messenger).
-    port_id: u32,
+    /// Error parsing the attributes (unrecoverable).
+    AttributeTooSmall,
 }
 
 /// Netlink possible payload types.
 pub enum NetlinkPayload {
+    /// Unloaded: initial payload value when it wasn't read yet.
+    Unloaded,
+    /// No payload.
     None,
-    Route(route::MessageType),
+    /// Link types: RTM_{NEW,DEL,GET,SET}LINK
+    Link(route::LinkMessage),
+    /// Address message: RTM_{NEW,DEL,GET}ADDR
+    Address(route::AddressMessage),
+    /// Route message: RTM_{NEW,DEL,GET}ROUTE
+    Route(route::RouteMessage),
+    /// Unknown payload type.
+    Unknown(Vec<u8>),
 }
 
 /// Netlink rust representation.
 pub struct NetlinkMessage {
     /// Netlink header.
-    pub header: NetlinkHeader,
+    pub header: header::NetlinkHeader,
     /// Netlink payload.
     pub payload: NetlinkPayload,
+    /// Netlink attributes.
+    pub attributes: Vec<attribute::NetlinkAttribute>,
 }
 
 type NetlinkParseResult<T> = Result<T, NetlinkParseError>;
 
-impl NetlinkHeader {
-    /// Read bytes from `AF_NETLINK` or custom interfaces and turn into netlink
-    /// header.
-    ///
-    /// Returns NetlinkHeader and offset to payload.
-    pub fn from(bytes: &[u8]) -> NetlinkParseResult<(NetlinkHeader, usize)> {
-        if bytes.len() < mem::size_of::<NetlinkHeader>() {
-            return Err(NetlinkParseError::MessageIncomplete);
-        }
+impl NetlinkMessage {
+    pub fn from(bytes: &[u8]) -> NetlinkParseResult<NetlinkMessage> {
+        let (header, position) = header::NetlinkHeader::from(bytes).unwrap();
+        let (payload, position) = match header.kind {
+            libc::RTM_NEWLINK | libc::RTM_DELLINK | libc::RTM_GETLINK | libc::RTM_SETLINK => {
+                let (payload, position) =
+                    route::LinkMessage::from(&bytes[position..header.length as usize]).unwrap();
+                (NetlinkPayload::Link(payload), position)
+            }
+            _ => (NetlinkPayload::None, header.length as usize),
+        };
+        let (attributes, _) =
+            attribute::NetlinkAttribute::from(&bytes[position..header.length as usize]).unwrap();
 
-        let mut cursor = Cursor::new(bytes);
-        let length = cursor.read_u32::<NativeEndian>().unwrap();
-        if (length as usize) > bytes.len() {
-            return Err(NetlinkParseError::MessageIncomplete);
-        }
-        if (length as usize) < mem::size_of::<NetlinkHeader>() {
-            return Err(NetlinkParseError::MessageTooSmall);
-        }
-
-        let kind = cursor.read_u16::<NativeEndian>().unwrap();
-        let flags = cursor.read_u16::<NativeEndian>().unwrap();
-        let sequence = cursor.read_u32::<NativeEndian>().unwrap();
-        let port_id = cursor.read_u32::<NativeEndian>().unwrap();
-
-        Ok((
-            NetlinkHeader {
-                length,
-                kind,
-                flags,
-                sequence,
-                port_id,
-            },
-            cursor.position() as usize,
-        ))
-    }
-
-    /// Transform netlink data structures into binaries for interfaces.
-    pub fn to_array(self, bytes: &mut [u8]) -> Result<usize, Error> {
-        let mut cursor = Cursor::new(bytes);
-
-        cursor.write_u32::<NativeEndian>(self.length)?;
-        cursor.write_u16::<NativeEndian>(self.kind)?;
-        cursor.write_u16::<NativeEndian>(self.flags)?;
-        cursor.write_u32::<NativeEndian>(self.sequence)?;
-        cursor.write_u32::<NativeEndian>(self.port_id)?;
-        Ok(cursor.position() as usize)
+        Ok(NetlinkMessage {
+            header,
+            payload,
+            attributes,
+        })
     }
 }
 
 #[cfg(test)]
 mod message_test {
+    use crate::message::header::netlink_flags;
+    use crate::message::header::netlink_types;
+    use crate::message::header::NetlinkHeader;
     use crate::message::*;
 
     #[test]

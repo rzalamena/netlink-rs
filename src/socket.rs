@@ -120,11 +120,23 @@ impl NetlinkSocket {
     /// To avoid message truncation use the constant
     /// [`crate::message::NETLINK_MESSAGE_MAXIMUM_SIZE`] for the array size.
     pub fn recv(self, buffer: &mut [u8], flags: i32) -> Result<isize> {
+        let mut iovec = libc::iovec {
+            iov_base: buffer.as_mut_ptr() as *mut libc::c_void,
+            iov_len: buffer.len(),
+        };
+        let mut msghdr = libc::msghdr {
+            msg_name: std::ptr::null_mut(),
+            msg_namelen: 0,
+            msg_iov: &mut iovec,
+            msg_iovlen: 1,
+            msg_control: std::ptr::null_mut(),
+            msg_controllen: 0,
+            msg_flags: 0,
+        };
         let bytes_read = unsafe {
-            libc::recv(
+            libc::recvmsg(
                 self.descriptor,
-                buffer.as_mut_ptr() as *mut libc::c_void,
-                buffer.len(),
+                &mut msghdr,
                 flags,
             )
         };
@@ -133,6 +145,9 @@ impl NetlinkSocket {
         }
         if bytes_read == 0 {
             return Err(Error::other("connection closed or buffer length zero"));
+        }
+        if (msghdr.msg_flags & libc::MSG_TRUNC) == libc::MSG_TRUNC {
+            return Err(Error::other("datagram truncated, incomplete message"));
         }
 
         Ok(bytes_read)

@@ -18,9 +18,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::io::Read;
+use std::{io::Read, vec};
 
 use byteorder::{NativeEndian, ReadBytesExt};
+
+use crate::message::NetlinkParseError;
+use crate::message::NetlinkParseResult;
 
 pub struct NetlinkAttribute {
     /// Netlink attribute type
@@ -38,19 +41,15 @@ pub enum NetlinkAttributeParseError {
     AttributeTooSmall,
     /// Bad attribute size (fatal error).
     AttributeIncomplete,
-    /// Failed to convert to type
-    TypeConversionFailed,
 }
 
 type Mac = [u8; 6];
 
-type NetlinkAttributeParseResult<T> = Result<T, NetlinkAttributeParseError>;
-
 impl NetlinkAttribute {
-    pub fn from(bytes: &[u8]) -> NetlinkAttributeParseResult<(Vec<NetlinkAttribute>, usize)> {
+    pub fn from(bytes: &[u8]) -> NetlinkParseResult<(Vec<NetlinkAttribute>, usize)> {
         let total_length = bytes.len();
-        if bytes.len() < 4 {
-            return Err(NetlinkAttributeParseError::AttributeTooSmall);
+        if total_length < 4 {
+            return Err(NetlinkParseError::AttributeTooSmall);
         }
 
         let mut attributes = vec![];
@@ -62,17 +61,14 @@ impl NetlinkAttribute {
             let length = cursor.read_u16::<NativeEndian>().unwrap();
 
             if length as usize > remaining {
-                return Err(NetlinkAttributeParseError::AttributeIncomplete);
+                return Err(NetlinkParseError::AttributeTooSmall);
             }
 
-            let mut data = Vec::with_capacity(length as usize);
+            let mut data = vec![0; length as usize];
             cursor.read_exact(&mut data).unwrap();
 
             if kind & libc::NLA_F_NESTED as u16 == libc::NLA_F_NESTED as u16 {
-                let nested_attributes = match NetlinkAttribute::from(&data) {
-                    Ok((attributes, _)) => attributes,
-                    Err(error) => return Err(error),
-                };
+                let (nested_attributes, _) = NetlinkAttribute::from(&data)?;
 
                 attributes.push(NetlinkAttribute {
                     kind,
@@ -93,19 +89,19 @@ impl NetlinkAttribute {
         Ok((attributes, cursor.position() as usize))
     }
 
-    pub fn mac(self) -> NetlinkAttributeParseResult<Mac> {
+    pub fn mac(self) -> Option<Mac> {
         if self.value.len() < 6 {
-            return Err(NetlinkAttributeParseError::AttributeIncomplete);
+            return None;
         }
 
-        Ok(self.value[0..5].try_into().unwrap())
+        Some(self.value[0..5].try_into().unwrap())
     }
 
-    pub fn ipv4(self) -> NetlinkAttributeParseResult<std::net::Ipv4Addr> {
+    pub fn ipv4(self) -> Option<std::net::Ipv4Addr> {
         if self.value.len() < 4 {
-            return Err(NetlinkAttributeParseError::AttributeIncomplete);
+            return None;
         }
 
-        Ok(u32::from_ne_bytes(self.value[0..3].try_into().unwrap()).into())
+        Some(u32::from_ne_bytes(self.value[0..3].try_into().unwrap()).into())
     }
 }

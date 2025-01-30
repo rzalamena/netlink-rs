@@ -21,13 +21,7 @@
 use byteorder::{NativeEndian, ReadBytesExt};
 use std::io::Cursor;
 
-use super::{attribute::NetlinkAttribute, NetlinkParseError, NetlinkParseResult};
-
-pub enum MessageType {
-    Link(LinkMessage),
-    Address(AddressMessage),
-    Route(RouteMessage),
-}
+use super::{NetlinkParseError, NetlinkParseResult};
 
 //
 // Constants definitions
@@ -91,12 +85,11 @@ pub struct LinkMessage {
     pub index: i32,
     pub flags: u32,
     pub change: u32,
-    pub attributes: Vec<NetlinkAttribute>,
 }
 
 impl LinkMessage {
-    pub fn from(bytes: &mut [u8]) -> NetlinkParseResult<(LinkMessage, usize)> {
-        if bytes.len() < std::mem::size_of::<LinkMessage>() {
+    pub fn from(bytes: &[u8]) -> NetlinkParseResult<(LinkMessage, usize)> {
+        if bytes.len() < 16 {
             return Err(NetlinkParseError::MessageTooSmall);
         }
 
@@ -107,23 +100,19 @@ impl LinkMessage {
         let index = cursor.read_i32::<NativeEndian>().unwrap();
         let flags = cursor.read_u32::<NativeEndian>().unwrap();
         let change = cursor.read_u32::<NativeEndian>().unwrap();
-        let (attributes, position) = match NetlinkAttribute::from(cursor.into_inner()) {
-            Ok((attributes, position)) => (attributes, position),
-            Err(_) => return Err(NetlinkParseError::MessageIncomplete),
-        };
-        let link_message = LinkMessage {
+        let link = LinkMessage {
             family,
             kind,
             index,
             flags,
             change,
-            attributes: attributes,
         };
 
-        Ok((link_message, position))
+        Ok((link, cursor.position() as usize))
     }
 }
 
+#[repr(C)]
 pub struct AddressMessage {
     /// See [`family`] constants.
     pub family: u8,
@@ -131,6 +120,31 @@ pub struct AddressMessage {
     pub flags: u8,
     pub scope: u8,
     pub index: u32,
+}
+
+impl AddressMessage {
+    pub fn from(bytes: &[u8]) -> NetlinkParseResult<(AddressMessage, usize)> {
+        if bytes.len() < 8 {
+            return Err(NetlinkParseError::MessageTooSmall);
+        }
+
+        let mut cursor = Cursor::new(bytes);
+
+        let family = cursor.read_u8().unwrap();
+        let prefix_length = cursor.read_u8().unwrap();
+        let flags = cursor.read_u8().unwrap();
+        let scope = cursor.read_u8().unwrap();
+        let index = cursor.read_u32::<NativeEndian>().unwrap();
+        let address = AddressMessage {
+            family,
+            prefix_length,
+            flags,
+            scope,
+            index,
+        };
+
+        Ok((address, cursor.position() as usize))
+    }
 }
 
 pub struct RouteMessage {
@@ -147,4 +161,37 @@ pub struct RouteMessage {
     pub kind: u8,
     /// See [`route_flags`] for available flags.
     pub flags: u32,
+}
+
+impl RouteMessage {
+    pub fn from(bytes: &[u8]) -> NetlinkParseResult<(RouteMessage, usize)> {
+        if bytes.len() < 12 {
+            return Err(NetlinkParseError::MessageTooSmall);
+        }
+
+        let mut cursor = Cursor::new(bytes);
+
+        let family = cursor.read_u8().unwrap();
+        let destination_prefix_length = cursor.read_u8().unwrap();
+        let source_prefix_length = cursor.read_u8().unwrap();
+        let type_of_service = cursor.read_u8().unwrap();
+        let table = cursor.read_u8().unwrap();
+        let protocol = cursor.read_u8().unwrap();
+        let scope = cursor.read_u8().unwrap();
+        let kind = cursor.read_u8().unwrap();
+        let flags = cursor.read_u32::<NativeEndian>().unwrap();
+        let route = RouteMessage {
+            family,
+            destination_prefix_length,
+            source_prefix_length,
+            type_of_service,
+            table,
+            protocol,
+            scope,
+            kind,
+            flags,
+        };
+
+        Ok((route, cursor.position() as usize))
+    }
 }
