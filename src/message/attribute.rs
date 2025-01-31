@@ -18,13 +18,21 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::{io::Read, vec};
+use std::io::Write;
+use std::io::{Error, Read};
 
-use byteorder::{NativeEndian, ReadBytesExt};
+use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
 
 use crate::message::NetlinkParseError;
 use crate::message::NetlinkParseResult;
 
+pub mod attribute_types {
+    /// This value is used ORed with attribute types to signal
+    /// nested attributes.
+    pub const NESTED: u16 = libc::NLA_F_NESTED as u16;
+}
+
+#[derive(Default)]
 pub struct NetlinkAttribute {
     /// Netlink attribute type
     pub kind: u16,
@@ -54,11 +62,17 @@ impl NetlinkAttribute {
 
         let mut attributes = vec![];
         let mut cursor = std::io::Cursor::new(bytes);
-        let remaining = total_length;
+        let mut remaining = total_length;
 
-        while cursor.position() < total_length as u64 {
+        while cursor.position() < remaining as u64 {
             let kind = cursor.read_u16::<NativeEndian>().unwrap();
-            let length = cursor.read_u16::<NativeEndian>().unwrap();
+            let mut length = cursor.read_u16::<NativeEndian>().unwrap();
+
+            if length < 4 {
+                return Err(NetlinkParseError::AttributeTooSmall);
+            }
+
+            length -= 4;
 
             if length as usize > remaining {
                 return Err(NetlinkParseError::AttributeTooSmall);
@@ -67,11 +81,11 @@ impl NetlinkAttribute {
             let mut data = vec![0; length as usize];
             cursor.read_exact(&mut data).unwrap();
 
-            if kind & libc::NLA_F_NESTED as u16 == libc::NLA_F_NESTED as u16 {
+            if kind & attribute_types::NESTED == attribute_types::NESTED {
                 let (nested_attributes, _) = NetlinkAttribute::from(&data)?;
 
                 attributes.push(NetlinkAttribute {
-                    kind,
+                    kind: kind & !(attribute_types::NESTED),
                     length,
                     value: data,
                     nested: nested_attributes,
@@ -81,15 +95,33 @@ impl NetlinkAttribute {
                     kind,
                     length,
                     value: data,
-                    nested: Default::default(),
+                    ..Default::default()
                 });
             }
+
+            remaining -= length as usize;
         }
 
         Ok((attributes, cursor.position() as usize))
     }
 
-    pub fn mac(self) -> Option<Mac> {
+    pub fn message_size(&self) -> usize {
+        return self.length as usize;
+    }
+
+    pub fn to_bytes(&self, bytes: &mut [u8]) -> Result<usize, Error> {
+        let mut cursor = std::io::Cursor::new(bytes);
+
+        cursor.write_u16::<NativeEndian>(self.kind)?;
+        cursor.write_u16::<NativeEndian>(self.length)?;
+        // Value already contains all nested attributes, so no need to
+        // recurse on nested attributes.
+        cursor.write_all(&self.value)?;
+
+        Ok(cursor.position() as usize)
+    }
+
+    pub fn mac(&self) -> Option<Mac> {
         if self.value.len() < 6 {
             return None;
         }
@@ -97,11 +129,19 @@ impl NetlinkAttribute {
         Some(self.value[0..5].try_into().unwrap())
     }
 
-    pub fn ipv4(self) -> Option<std::net::Ipv4Addr> {
+    pub fn ipv4(&self) -> Option<std::net::Ipv4Addr> {
         if self.value.len() < 4 {
             return None;
         }
 
         Some(u32::from_ne_bytes(self.value[0..3].try_into().unwrap()).into())
+    }
+
+    pub fn ipv6(&self) -> Option<std::net::Ipv6Addr> {
+        if self.value.len() < 16 {
+            return None;
+        }
+
+        Some(u128::from_ne_bytes(self.value[0..15].try_into().unwrap()).into())
     }
 }

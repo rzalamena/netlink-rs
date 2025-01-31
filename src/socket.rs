@@ -65,7 +65,7 @@ impl NetlinkSocket {
     /// port ID ``pid`` and subscribe to notifications groups `groups`.
     ///
     /// `pid` is usually the process PID or something of common knowledge
-    /// between other software.
+    /// between other software (`0` means use process PID).
     ///
     /// `groups` is defined per `protocol` and is a bitfield.
     ///
@@ -119,7 +119,7 @@ impl NetlinkSocket {
     ///
     /// To avoid message truncation use the constant
     /// [`crate::message::NETLINK_MESSAGE_MAXIMUM_SIZE`] for the array size.
-    pub fn recv(self, buffer: &mut [u8], flags: i32) -> Result<isize> {
+    pub fn recv(&self, buffer: &mut [u8], flags: i32) -> Result<isize> {
         let mut iovec = libc::iovec {
             iov_base: buffer.as_mut_ptr() as *mut libc::c_void,
             iov_len: buffer.len(),
@@ -145,6 +145,26 @@ impl NetlinkSocket {
         }
 
         Ok(bytes_read)
+    }
+
+    /// Send data to the netlink socket.
+    pub fn send(&self, buffer: &[u8], flags: i32) -> Result<isize> {
+        let bytes_sent = unsafe {
+            libc::send(
+                self.descriptor,
+                buffer.as_ptr() as *const libc::c_void,
+                buffer.len(),
+                flags,
+            )
+        };
+        if bytes_sent == -1 {
+            return Err(Error::last_os_error());
+        }
+        if bytes_sent == 0 {
+            return Err(Error::other("connection closed or buffer length zero"));
+        }
+
+        Ok(bytes_sent)
     }
 }
 

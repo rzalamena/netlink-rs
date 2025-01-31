@@ -18,8 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use byteorder::{NativeEndian, ReadBytesExt};
-use std::io::Cursor;
+use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{Cursor, Error};
 
 use super::{NetlinkParseError, NetlinkParseResult};
 
@@ -75,9 +75,20 @@ pub mod link_attribute {
     pub const MTU: u16 = libc::IFLA_MTU;
 }
 
+pub mod route_attribute {
+    pub const DST: u16 = libc::RTA_DST;
+    pub const SRC: u16 = libc::RTA_SRC;
+    pub const IIF: u16 = libc::RTA_IIF;
+    pub const OIF: u16 = libc::RTA_OIF;
+    pub const GATEWAY: u16 = libc::RTA_GATEWAY;
+    pub const MULTIPATH: u16 = libc::RTA_MULTIPATH;
+    pub const TABLE: u16 = libc::RTA_TABLE;
+}
+
 //
 // Struct definitions
 //
+#[derive(Default)]
 pub struct LinkMessage {
     /// See [`family`] constants.
     pub family: u8,
@@ -88,8 +99,12 @@ pub struct LinkMessage {
 }
 
 impl LinkMessage {
+    pub fn message_size() -> usize {
+        16
+    }
+
     pub fn from(bytes: &[u8]) -> NetlinkParseResult<(LinkMessage, usize)> {
-        if bytes.len() < 16 {
+        if bytes.len() < LinkMessage::message_size() {
             return Err(NetlinkParseError::MessageTooSmall);
         }
 
@@ -110,8 +125,21 @@ impl LinkMessage {
 
         Ok((link, cursor.position() as usize))
     }
+
+    pub fn to_bytes(&self, bytes: &mut [u8]) -> Result<usize, Error> {
+        let mut cursor = std::io::Cursor::new(bytes);
+
+        cursor.write_u8(self.family)?;
+        cursor.write_u16::<NativeEndian>(self.kind)?;
+        cursor.write_i32::<NativeEndian>(self.index)?;
+        cursor.write_u32::<NativeEndian>(self.flags)?;
+        cursor.write_u32::<NativeEndian>(self.change)?;
+
+        Ok(cursor.position() as usize)
+    }
 }
 
+#[derive(Default)]
 pub struct AddressMessage {
     /// See [`family`] constants.
     pub family: u8,
@@ -122,8 +150,12 @@ pub struct AddressMessage {
 }
 
 impl AddressMessage {
+    pub fn message_size() -> usize {
+        8
+    }
+
     pub fn from(bytes: &[u8]) -> NetlinkParseResult<(AddressMessage, usize)> {
-        if bytes.len() < 8 {
+        if bytes.len() < AddressMessage::message_size() {
             return Err(NetlinkParseError::MessageTooSmall);
         }
 
@@ -144,8 +176,21 @@ impl AddressMessage {
 
         Ok((address, cursor.position() as usize))
     }
+
+    pub fn to_bytes(&self, bytes: &mut [u8]) -> Result<usize, Error> {
+        let mut cursor = std::io::Cursor::new(bytes);
+
+        cursor.write_u8(self.family)?;
+        cursor.write_u8(self.prefix_length)?;
+        cursor.write_u8(self.flags)?;
+        cursor.write_u8(self.scope)?;
+        cursor.write_u32::<NativeEndian>(self.index)?;
+
+        Ok(cursor.position() as usize)
+    }
 }
 
+#[derive(Default)]
 pub struct RouteMessage {
     /// See [`family`] constants.
     pub family: u8,
@@ -163,8 +208,12 @@ pub struct RouteMessage {
 }
 
 impl RouteMessage {
+    pub fn message_size() -> usize {
+        12
+    }
+
     pub fn from(bytes: &[u8]) -> NetlinkParseResult<(RouteMessage, usize)> {
-        if bytes.len() < 12 {
+        if bytes.len() < RouteMessage::message_size() {
             return Err(NetlinkParseError::MessageTooSmall);
         }
 
@@ -192,5 +241,21 @@ impl RouteMessage {
         };
 
         Ok((route, cursor.position() as usize))
+    }
+
+    pub fn to_bytes(&self, bytes: &mut [u8]) -> Result<usize, Error> {
+        let mut cursor = std::io::Cursor::new(bytes);
+
+        cursor.write_u8(self.family)?;
+        cursor.write_u8(self.destination_prefix_length)?;
+        cursor.write_u8(self.source_prefix_length)?;
+        cursor.write_u8(self.type_of_service)?;
+        cursor.write_u8(self.table)?;
+        cursor.write_u8(self.protocol)?;
+        cursor.write_u8(self.scope)?;
+        cursor.write_u8(self.kind)?;
+        cursor.write_u32::<NativeEndian>(self.flags)?;
+
+        Ok(cursor.position() as usize)
     }
 }

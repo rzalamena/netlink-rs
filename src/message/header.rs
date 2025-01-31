@@ -62,6 +62,7 @@ pub mod netlink_flags {
 }
 
 /// Netlink header rust version.
+#[derive(Default)]
 pub struct NetlinkHeader {
     /// Netlink message length (including this header).
     pub length: u32,
@@ -112,7 +113,7 @@ impl NetlinkHeader {
     }
 
     /// Transform netlink data structures into binaries for interfaces.
-    pub fn to_bytes(self, bytes: &mut [u8]) -> Result<usize, Error> {
+    pub fn to_bytes(&self, bytes: &mut [u8]) -> Result<usize, Error> {
         let mut cursor = Cursor::new(bytes);
 
         cursor.write_u32::<NativeEndian>(self.length)?;

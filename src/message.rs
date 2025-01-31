@@ -38,9 +38,9 @@ pub enum NetlinkParseError {
 }
 
 /// Netlink possible payload types.
+#[derive(Default)]
 pub enum NetlinkPayload {
-    /// Unloaded: initial payload value when it wasn't read yet.
-    Unloaded,
+    #[default]
     /// No payload.
     None,
     /// Link types: RTM_{NEW,DEL,GET,SET}LINK
@@ -54,6 +54,7 @@ pub enum NetlinkPayload {
 }
 
 /// Netlink rust representation.
+#[derive(Default)]
 pub struct NetlinkMessage {
     /// Netlink header.
     pub header: header::NetlinkHeader,
@@ -68,8 +69,8 @@ type NetlinkParseResult<T> = Result<T, NetlinkParseError>;
 impl NetlinkMessage {
     pub fn from(bytes: &[u8]) -> NetlinkParseResult<NetlinkMessage> {
         let (header, payload_position) = header::NetlinkHeader::from(bytes)?;
-        let total_length = header.length as usize;
-        let payload_slice = &bytes[payload_position..total_length];
+        let total_length = (header.length - payload_position as u32) as usize;
+        let payload_slice = &bytes[payload_position - 1..total_length - 1];
 
         let (payload, attributes_position) = match header.kind {
             header::netlink_types::NEWLINK
@@ -99,11 +100,14 @@ impl NetlinkMessage {
             | header::netlink_types::NOOP
             | header::netlink_types::OVERRUN => (NetlinkPayload::None, total_length),
 
-            _ => (NetlinkPayload::Unknown(Vec::from(payload_slice)), total_length),
+            _ => (
+                NetlinkPayload::Unknown(Vec::from(payload_slice)),
+                total_length,
+            ),
         };
 
         if attributes_position != total_length {
-            let attributes_slice = &bytes[attributes_position..total_length];
+            let attributes_slice = &payload_slice[attributes_position - 1..];
             let (attributes, _next_header_position) =
                 attribute::NetlinkAttribute::from(&attributes_slice)?;
 
@@ -116,9 +120,32 @@ impl NetlinkMessage {
             Ok(NetlinkMessage {
                 header,
                 payload,
-                attributes: Vec::new(),
+                ..Default::default()
             })
         }
+    }
+
+    pub fn to_bytes(&self, bytes: &mut [u8]) -> Result<usize, std::io::Error> {
+        let mut position = self.header.to_bytes(bytes)?;
+        let mut payload_slice = &mut bytes[position..];
+
+        position += match &self.payload {
+            NetlinkPayload::Link(message) => message.to_bytes(&mut payload_slice)?,
+            NetlinkPayload::Address(message) => message.to_bytes(&mut payload_slice)?,
+            NetlinkPayload::Route(message) => message.to_bytes(&mut payload_slice)?,
+            NetlinkPayload::Unknown(data) => {
+                payload_slice.copy_from_slice(&data);
+                data.len()
+            }
+            NetlinkPayload::None => position,
+        };
+
+        for attribute in &self.attributes {
+            let mut attribute_slice = &mut bytes[position..];
+            position += attribute.to_bytes(&mut attribute_slice)?;
+        }
+
+        Ok(position)
     }
 }
 
@@ -220,5 +247,26 @@ mod message_test {
             Ok(_) => assert!(false),
             Err(_) => assert!(true),
         }
+    }
+
+    #[test]
+    fn get_route_message() {
+        let message = NetlinkMessage {
+            header: NetlinkHeader {
+                length: 28,
+                kind: header::netlink_types::GETROUTE,
+                flags: netlink_flags::REQUEST | netlink_flags::ROOT,
+                sequence: 1,
+                port_id: 0,
+            },
+            payload: NetlinkPayload::Route(route::RouteMessage {
+                family: route::family::INET,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut buffer = [0u8; NETLINK_MESSAGE_MAXIMUM_SIZE];
+        let bytes_written = message.to_bytes(&mut buffer).unwrap();
+        assert_eq!(bytes_written, 28);
     }
 }
