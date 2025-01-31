@@ -18,6 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::io::BufRead;
+
 pub mod attribute;
 pub mod header;
 pub mod route;
@@ -38,7 +40,7 @@ pub enum NetlinkParseError {
 }
 
 /// Netlink possible payload types.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub enum NetlinkPayload {
     #[default]
     /// No payload.
@@ -70,7 +72,7 @@ impl NetlinkMessage {
     pub fn from(bytes: &[u8]) -> NetlinkParseResult<NetlinkMessage> {
         let (header, payload_position) = header::NetlinkHeader::from(bytes)?;
         let total_length = (header.length - payload_position as u32) as usize;
-        let payload_slice = &bytes[payload_position - 1..total_length - 1];
+        let payload_slice = &bytes[payload_position..total_length];
 
         let (payload, attributes_position) = match header.kind {
             header::netlink_types::NEWLINK
@@ -107,7 +109,7 @@ impl NetlinkMessage {
         };
 
         if attributes_position != total_length {
-            let attributes_slice = &payload_slice[attributes_position - 1..];
+            let attributes_slice = &payload_slice[attributes_position..];
             let (attributes, _next_header_position) =
                 attribute::NetlinkAttribute::from(&attributes_slice)?;
 
@@ -123,6 +125,22 @@ impl NetlinkMessage {
                 ..Default::default()
             })
         }
+    }
+
+    pub fn from_all(bytes: &[u8]) -> Vec<NetlinkMessage> {
+        let mut messages: Vec<NetlinkMessage> = vec![];
+        let total_length = bytes.len();
+        let mut cursor = std::io::Cursor::new(bytes);
+
+        while (cursor.position() as usize) < total_length {
+            let slice = &cursor.get_ref()[cursor.position() as usize..];
+            let message = NetlinkMessage::from(&slice).unwrap();
+
+            cursor.consume(message.header.length as usize);
+            messages.push(message);
+        }
+
+        messages
     }
 
     pub fn to_bytes(&self, bytes: &mut [u8]) -> Result<usize, std::io::Error> {

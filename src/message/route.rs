@@ -88,7 +88,7 @@ pub mod route_attribute {
 //
 // Struct definitions
 //
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct LinkMessage {
     /// See [`family`] constants.
     pub family: u8,
@@ -111,6 +111,10 @@ impl LinkMessage {
         let mut cursor = Cursor::new(bytes);
 
         let family = cursor.read_u8().unwrap();
+
+        // Skip padding
+        cursor.read_u8().unwrap();
+
         let kind = cursor.read_u16::<NativeEndian>().unwrap();
         let index = cursor.read_i32::<NativeEndian>().unwrap();
         let flags = cursor.read_u32::<NativeEndian>().unwrap();
@@ -139,7 +143,7 @@ impl LinkMessage {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct AddressMessage {
     /// See [`family`] constants.
     pub family: u8,
@@ -190,7 +194,7 @@ impl AddressMessage {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct RouteMessage {
     /// See [`family`] constants.
     pub family: u8,

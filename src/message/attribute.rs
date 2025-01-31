@@ -64,9 +64,9 @@ impl NetlinkAttribute {
         let mut cursor = std::io::Cursor::new(bytes);
         let mut remaining = total_length;
 
-        while cursor.position() < remaining as u64 {
-            let kind = cursor.read_u16::<NativeEndian>().unwrap();
+        while cursor.position() < total_length as u64 {
             let mut length = cursor.read_u16::<NativeEndian>().unwrap();
+            let kind = cursor.read_u16::<NativeEndian>().unwrap();
 
             if length < 4 {
                 return Err(NetlinkParseError::AttributeTooSmall);
@@ -85,7 +85,7 @@ impl NetlinkAttribute {
                 let (nested_attributes, _) = NetlinkAttribute::from(&data)?;
 
                 attributes.push(NetlinkAttribute {
-                    kind: kind & !(attribute_types::NESTED),
+                    kind: kind & (!attribute_types::NESTED),
                     length,
                     value: data,
                     nested: nested_attributes,
@@ -99,7 +99,7 @@ impl NetlinkAttribute {
                 });
             }
 
-            remaining -= length as usize;
+            remaining -= 4 + length as usize;
         }
 
         Ok((attributes, cursor.position() as usize))
@@ -134,7 +134,10 @@ impl NetlinkAttribute {
             return None;
         }
 
-        Some(u32::from_ne_bytes(self.value[0..3].try_into().unwrap()).into())
+        let mut buffer = [0u8; 4];
+        buffer.copy_from_slice(self.value.as_slice());
+
+        Some(u32::from_be_bytes(buffer).into())
     }
 
     pub fn ipv6(&self) -> Option<std::net::Ipv6Addr> {
