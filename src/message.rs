@@ -67,20 +67,45 @@ type NetlinkParseResult<T> = Result<T, NetlinkParseError>;
 
 impl NetlinkMessage {
     pub fn from(bytes: &[u8]) -> NetlinkParseResult<NetlinkMessage> {
-        let (header, position) = header::NetlinkHeader::from(bytes)?;
+        let (header, payload_position) = header::NetlinkHeader::from(bytes)?;
+        let total_length = header.length as usize;
+        let payload_slice = &bytes[payload_position..total_length];
 
-        let (payload, position) = match header.kind {
-            libc::RTM_NEWLINK | libc::RTM_DELLINK | libc::RTM_GETLINK | libc::RTM_SETLINK => {
-                let (payload, position) =
-                    route::LinkMessage::from(&bytes[position..header.length as usize])?;
+        let (payload, attributes_position) = match header.kind {
+            header::netlink_types::NEWLINK
+            | header::netlink_types::DELLINK
+            | header::netlink_types::GETLINK
+            | header::netlink_types::SETLINK => {
+                let (payload, position) = route::LinkMessage::from(&payload_slice)?;
                 (NetlinkPayload::Link(payload), position)
             }
-            _ => (NetlinkPayload::None, header.length as usize),
+
+            header::netlink_types::NEWADDR
+            | header::netlink_types::DELADDR
+            | header::netlink_types::GETADDR => {
+                let (payload, position) = route::AddressMessage::from(&payload_slice)?;
+                (NetlinkPayload::Address(payload), position)
+            }
+
+            header::netlink_types::NEWROUTE
+            | header::netlink_types::DELROUTE
+            | header::netlink_types::GETROUTE => {
+                let (payload, position) = route::RouteMessage::from(&payload_slice)?;
+                (NetlinkPayload::Route(payload), position)
+            }
+
+            header::netlink_types::DONE
+            | header::netlink_types::ERROR
+            | header::netlink_types::NOOP
+            | header::netlink_types::OVERRUN => (NetlinkPayload::None, total_length),
+
+            _ => (NetlinkPayload::Unknown(Vec::from(payload_slice)), total_length),
         };
 
-        if position != header.length as usize {
-            let (attributes, _) =
-                attribute::NetlinkAttribute::from(&bytes[position..header.length as usize])?;
+        if attributes_position != total_length {
+            let attributes_slice = &bytes[attributes_position..total_length];
+            let (attributes, _next_header_position) =
+                attribute::NetlinkAttribute::from(&attributes_slice)?;
 
             Ok(NetlinkMessage {
                 header,
@@ -129,7 +154,7 @@ mod message_test {
             port_id: 0,
         };
         let mut bytes = [0u8; NETLINK_MESSAGE_MAXIMUM_SIZE];
-        header.to_array(&mut bytes).unwrap();
+        header.to_bytes(&mut bytes).unwrap();
 
         match NetlinkHeader::from(&bytes) {
             Err(NetlinkParseError::MessageTooSmall) => assert!(true),
@@ -147,7 +172,7 @@ mod message_test {
             port_id: 0,
         };
         let mut bytes = [0u8; 16];
-        let written = header.to_array(&mut bytes).unwrap();
+        let written = header.to_bytes(&mut bytes).unwrap();
 
         // Assert that we only wrote 16 bytes, but header says its 17.
         assert_eq!(written, 16);
@@ -167,7 +192,7 @@ mod message_test {
             port_id: 123,
         };
         let mut bytes = [0u8; NETLINK_MESSAGE_MAXIMUM_SIZE];
-        header.to_array(&mut bytes).unwrap();
+        header.to_bytes(&mut bytes).unwrap();
 
         match NetlinkHeader::from(&bytes) {
             Ok((header, _)) => {
@@ -191,7 +216,7 @@ mod message_test {
             port_id: 123,
         };
         let mut bytes = [0u8; 15];
-        match header.to_array(&mut bytes) {
+        match header.to_bytes(&mut bytes) {
             Ok(_) => assert!(false),
             Err(_) => assert!(true),
         }

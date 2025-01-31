@@ -112,7 +112,6 @@ impl LinkMessage {
     }
 }
 
-#[repr(C)]
 pub struct AddressMessage {
     /// See [`family`] constants.
     pub family: u8,

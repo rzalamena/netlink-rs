@@ -25,11 +25,23 @@ use std::{
     mem,
 };
 
+/// Netlink header message types (use in `kind` field).
 pub mod netlink_types {
     pub const DONE: u16 = libc::NLMSG_DONE as u16;
     pub const ERROR: u16 = libc::NLMSG_ERROR as u16;
     pub const NOOP: u16 = libc::NLMSG_NOOP as u16;
     pub const OVERRUN: u16 = libc::NLMSG_OVERRUN as u16;
+
+    pub const NEWLINK: u16 = libc::RTM_NEWLINK;
+    pub const DELLINK: u16 = libc::RTM_DELLINK;
+    pub const GETLINK: u16 = libc::RTM_GETLINK;
+    pub const SETLINK: u16 = libc::RTM_SETLINK;
+    pub const NEWADDR: u16 = libc::RTM_NEWADDR;
+    pub const DELADDR: u16 = libc::RTM_DELADDR;
+    pub const GETADDR: u16 = libc::RTM_GETADDR;
+    pub const NEWROUTE: u16 = libc::RTM_NEWROUTE;
+    pub const DELROUTE: u16 = libc::RTM_DELROUTE;
+    pub const GETROUTE: u16 = libc::RTM_GETROUTE;
 }
 
 pub mod netlink_flags {
@@ -100,7 +112,7 @@ impl NetlinkHeader {
     }
 
     /// Transform netlink data structures into binaries for interfaces.
-    pub fn to_array(self, bytes: &mut [u8]) -> Result<usize, Error> {
+    pub fn to_bytes(self, bytes: &mut [u8]) -> Result<usize, Error> {
         let mut cursor = Cursor::new(bytes);
 
         cursor.write_u32::<NativeEndian>(self.length)?;
