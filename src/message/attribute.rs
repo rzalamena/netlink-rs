@@ -145,6 +145,9 @@ impl NetlinkAttribute {
             return None;
         }
 
-        Some(u128::from_ne_bytes(self.value[0..15].try_into().unwrap()).into())
+        let mut buffer = [0u8; 16];
+        buffer.copy_from_slice(self.value.as_slice());
+
+        Some(u128::from_ne_bytes(buffer).into())
     }
 }

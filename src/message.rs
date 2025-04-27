@@ -127,20 +127,20 @@ impl NetlinkMessage {
         }
     }
 
-    pub fn from_all(bytes: &[u8]) -> Vec<NetlinkMessage> {
+    pub fn from_all(bytes: &[u8]) -> NetlinkParseResult<Vec<NetlinkMessage>> {
         let mut messages: Vec<NetlinkMessage> = vec![];
         let total_length = bytes.len();
         let mut cursor = std::io::Cursor::new(bytes);
 
         while (cursor.position() as usize) < total_length {
             let slice = &cursor.get_ref()[cursor.position() as usize..];
-            let message = NetlinkMessage::from(&slice).unwrap();
+            let message = NetlinkMessage::from(&slice)?;
 
             cursor.consume(message.header.length as usize);
             messages.push(message);
         }
 
-        messages
+        Ok(messages)
     }
 
     pub fn to_bytes(&self, bytes: &mut [u8]) -> Result<usize, std::io::Error> {
